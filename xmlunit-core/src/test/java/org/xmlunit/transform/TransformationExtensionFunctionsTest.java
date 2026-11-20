@@ -13,9 +13,14 @@
 */
 package org.xmlunit.transform;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import javax.xml.transform.TransformerFactory;
 
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.xmlunit.XMLUnitException;
 import org.xmlunit.builder.Input;
 import org.xmlunit.util.TransformerFactoryConfigurer;
@@ -24,6 +29,9 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class TransformationExtensionFunctionsTest {
+
+    @Rule
+    public TemporaryFolder folder = new TemporaryFolder();
 
     private static final String STYLESHEET =
         "<xsl:stylesheet version='1.0' xmlns:xsl='http://www.w3.org/1999/XSL/Transform'"
@@ -56,6 +64,41 @@ public class TransformationExtensionFunctionsTest {
         t.setFactory(configurer.configure(TransformerFactory.newInstance()));
         String result = t.transformToString();
         assertTrue(result, result.contains("<r>1</r>"));
+    }
+
+    @Test
+    public void defaultFactoryRefusesExtensionFunctions() {
+        assertRefused(transformation());
+    }
+
+    @Test
+    public void defaultConfigurerRefusesExtensionFunctions() {
+        Transformation t = transformation();
+        t.setFactory(TransformerFactoryConfigurer.Default.configure(TransformerFactory.newInstance()));
+        assertRefused(t);
+    }
+
+    @Test
+    public void noExternalAccessRefusesExtensionFunctions() {
+        Transformation t = transformation();
+        t.setFactory(TransformerFactoryConfigurer.NoExternalAccess.configure(TransformerFactory.newInstance()));
+        assertRefused(t);
+    }
+
+    @Test
+    public void defaultFactoryStillLoadsExternalStylesheets() throws Exception {
+        File imported = folder.newFile("imported.xsl");
+        Files.write(imported.toPath(), ("<xsl:stylesheet version='1.0'"
+            + " xmlns:xsl='http://www.w3.org/1999/XSL/Transform'>"
+            + "<xsl:template match='/'><r>imported</r></xsl:template>"
+            + "</xsl:stylesheet>").getBytes(StandardCharsets.UTF_8));
+        Transformation t = new Transformation(Input.fromString("<a/>").build());
+        t.setStylesheet(Input.fromString("<xsl:stylesheet version='1.0'"
+            + " xmlns:xsl='http://www.w3.org/1999/XSL/Transform'>"
+            + "<xsl:import href='" + imported.toURI() + "'/>"
+            + "</xsl:stylesheet>").build());
+        String result = t.transformToString();
+        assertTrue(result, result.contains("<r>imported</r>"));
     }
 
     @Test

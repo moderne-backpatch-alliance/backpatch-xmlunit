@@ -29,15 +29,21 @@ import org.xmlunit.ConfigurationException;
  */
 public class TransformerFactoryConfigurer {
 
+    private static final String ACCESS_EXTERNAL_DTD = "http://javax.xml.XMLConstants/property/accessExternalDTD";
+    private static final String ACCESS_EXTERNAL_STYLESHEET =
+        "http://javax.xml.XMLConstants/property/accessExternalStylesheet";
+
     private final Map<String, Object> attributes, safeAttributes;
     private final Map<String, Boolean> features, safeFeatures;
+    private final boolean extensionFunctionsDisabled;
 
     private TransformerFactoryConfigurer(Map<String, Object> attributes, Map<String, Object> safeAttributes,
-            Map<String, Boolean> features, Map<String, Boolean> safeFeatures) {
+            Map<String, Boolean> features, Map<String, Boolean> safeFeatures, boolean extensionFunctionsDisabled) {
         this.attributes = attributes;
         this.safeAttributes = safeAttributes;
         this.features = features;
         this.safeFeatures = safeFeatures;
+        this.extensionFunctionsDisabled = extensionFunctionsDisabled;
     }
 
     /**
@@ -77,7 +83,42 @@ public class TransformerFactoryConfigurer {
                 // swallow
             }
         }
+        if (extensionFunctionsDisabled) {
+            enableSecureProcessingKeepingExternalAccess(factory);
+        }
         return factory;
+    }
+
+    // JDKs before 25 refuse the attribute and only stop extension functions under secure processing.
+    // Secure processing also closes external access, the settings that asked for it stay as they were.
+    private static void enableSecureProcessingKeepingExternalAccess(TransformerFactory factory) {
+        final Object dtdAccess = getSafeAttribute(factory, ACCESS_EXTERNAL_DTD);
+        final Object stylesheetAccess = getSafeAttribute(factory, ACCESS_EXTERNAL_STYLESHEET);
+        try {
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        } catch (TransformerConfigurationException ex) {
+            return;
+        }
+        setSafeAttribute(factory, ACCESS_EXTERNAL_DTD, dtdAccess);
+        setSafeAttribute(factory, ACCESS_EXTERNAL_STYLESHEET, stylesheetAccess);
+    }
+
+    private static Object getSafeAttribute(TransformerFactory factory, String key) {
+        try {
+            return factory.getAttribute(key);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private static void setSafeAttribute(TransformerFactory factory, String key, Object value) {
+        if (value != null) {
+            try {
+                factory.setAttribute(key, value);
+            } catch (IllegalArgumentException ex) {
+                // swallow
+            }
+        }
     }
 
     /**
@@ -148,6 +189,7 @@ public class TransformerFactoryConfigurer {
         private final Map<String, Object> safeAttributes = new HashMap<String, Object>();
         private final Map<String, Boolean> features = new HashMap<String, Boolean>();
         private final Map<String, Boolean> safeFeatures = new HashMap<String, Boolean>();
+        private boolean extensionFunctionsDisabled;
 
         /**
          * Builds a TransformerFactoryConfigurer.
@@ -156,7 +198,7 @@ public class TransformerFactoryConfigurer {
         public TransformerFactoryConfigurer build() {
             return new TransformerFactoryConfigurer(Collections.unmodifiableMap(attributes),
                 Collections.unmodifiableMap(safeAttributes), Collections.unmodifiableMap(features),
-                Collections.unmodifiableMap(safeFeatures));
+                Collections.unmodifiableMap(safeFeatures), extensionFunctionsDisabled);
         }
 
         /**
@@ -234,6 +276,7 @@ public class TransformerFactoryConfigurer {
          * @since XMLUnit 2.10.0
          */
         public Builder withExtensionFunctionsDisabled() {
+            extensionFunctionsDisabled = true;
             return withSafeAttribute("jdk.xml.enableExtensionFunctions", "false");
         }
 
